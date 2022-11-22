@@ -9,7 +9,7 @@
  */
 int main(int argc, char *argv[])
 {
-    char* temp[10];
+    char temp[10];
     int p[2];
     pipe(p);
     if (fork() == 0) {
