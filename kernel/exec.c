@@ -121,6 +121,7 @@ exec(char *path, char **argv)
   safestrcpy(p->name, last, sizeof(p->name));
     
   // Commit to the user image.
+  // exec通过把当前进程的内存空间清空，然后初始化一个新的页表，将二进制执行文件分配新的内存，建立新的到页表的映射关系
   oldpagetable = p->pagetable;
   p->pagetable = pagetable;
   p->sz = sz;
