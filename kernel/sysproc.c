@@ -75,6 +75,39 @@ int
 sys_pgaccess(void)
 {
   // lab pgtbl: your code here.
+  uint64 base_va = 0, mask_va = 0;
+  uint32 mask = 0, i = -1;
+  int page_num = 0;
+  pte_t* pte;
+  struct proc* p = myproc();
+
+  argaddr(0, &base_va);
+  argint(1, &page_num);
+  argaddr(2, &mask_va);
+
+  if (page_num <= 0 || page_num > 32) {
+    panic("the page_num should be grater than 0");
+  }
+
+  uint64 a = PGROUNDDOWN(base_va);
+  uint64 last = PGROUNDDOWN(base_va + page_num * PGSIZE);
+  for (;;) {
+    i++;
+    if ((pte = walk(p->pagetable, a, 0)) == 0) {
+      continue;
+    }
+    if (*pte & PTE_A) {
+      mask |= (1 << i);
+      *pte &= (~PTE_A);
+    }
+    if (a == last) {
+      break;
+    }
+    a += PGSIZE;
+  }
+  if(copyout(p->pagetable, mask_va, (char*)&mask, sizeof(mask)) != 0) {
+    panic("copyout error");
+  }
   return 0;
 }
 #endif
