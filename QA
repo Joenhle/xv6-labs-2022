@@ -1,0 +1,12 @@
+系统启动直到shell启动一共经历了哪些流程
+
+1. 首先kernel.ld初始化了文件的各个段地址和起始地址在0x80000000处，为text段的起始位置，_entry定义了程序从该处开始执行
+2. entry.S 跳转到start.c中的start函数
+3. start.c 进行一些寄存器的初始化，然后调用mret进入supervisor模式，并返回到main.c中的main函数中
+4. main.c 整个kernel的boot过程，内存分配器初始化，初始化内核的pagetable，将kennel pagetable的地址加载到SATP寄存器中，然后创建并初始化第一个进程（allocproc中将process的context的ra赋值为forkret，后面进程间切换的时候会调用到此函数，并将trapfram的epc置为0，以及将执行exec(/init)的代码放在了虚拟地址0的地方）
+5. proc.c scheduler开始进入循环进程调度，然后第一次就进入到forkret中（每个新创建的进程在第一次执行scheduler的时候都会调用这个函数，用于返回到用户空间）
+6. trap.c 调用usertrapret函数，“w_stvec(trampoline_uservec)”设置后面的返回用户空间发生trap时候handle的跳转地址，“p->trapframe->kernel_trap = (uint64)usertrap”用于在用户空间检测到trap并跳转到uservec后，再调用usertrap进行详细处理，”w_sepc(p->trapframe->epc)“，将刚才0的地址写入sepc寄存器(后面调用sret的时候，将epc的值赋值给pc，也就是0地址的值，即exec(init)),"((void (*)(uint64))trampoline_userret)(satp)"一行最后跳转到userret函数
+7. trampoline.S userret函数，将user pagetable写入satp寄存器，恢复trapframe中保留的寄存器的值，调用sret，跳转到地址为0的地方
+8. 执行exec(init), 通过ecall指令修改mode为supervisor，同时将pc设置为stevc的值，准备跳转到uservec中
+9. trampoline.S uservec 开始进入内核空间，先将寄存器进行保存，避免原先的寄存器信息丢失，并将kernel pagetable的地址写入satp寄存器中，然后跳转到usertrap进行详细trap处理
+10 trap.c usertrap “w_stvec((uint64)kernelvec)”此时已经在内核空间中，此时发生的exception跳转应该到kernelvec里，记录用户空间跳转过来时的pc， 调用syscall进行后续系统调用

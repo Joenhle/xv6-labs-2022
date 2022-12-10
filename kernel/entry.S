@@ -1,3 +1,4 @@
+# 启动顺序1，直接在0x80000000位置处执行boot代码，先分配
         # qemu -kernel loads the kernel at 0x80000000
         # and causes each hart (i.e. CPU) to jump there.
         # kernel.ld causes the following code to

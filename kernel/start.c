@@ -17,9 +17,13 @@ uint64 timer_scratch[NCPU][5];
 extern void timervec();
 
 // entry.S jumps here in machine mode on stack0.
+/**
+ * @brief step2 准备跳入main中，并进入supervisor状态 -> kernel/main.c
+ */
 void
 start()
 {
+  //这里是为了mret进入main之后，进入supervisor状态
   // set M Previous Privilege mode to Supervisor, for mret.
   unsigned long x = r_mstatus();
   x &= ~MSTATUS_MPP_MASK;
@@ -28,6 +32,7 @@ start()
 
   // set M Exception Program Counter to main, for mret.
   // requires gcc -mcmodel=medany
+  // 这个寄存器是发生exception的时候，记录当时发生的指令的地址，然后handle完之后，调用mret指令返回的，这里假装有一个发生，其实没有发生，只是为了等会儿进入main函数
   w_mepc((uint64)main);
 
   // disable paging for now.

@@ -7,6 +7,10 @@
 volatile static int started = 0;
 
 // start() jumps here in supervisor mode on all CPUs.
+/**
+ * @brief step3 整个kernel的boot过程，内存分配器初始化，初始化内核的pagetable，将kennel pagetable的地址加载到SATP寄存器中，然后创建并初始化第一个进程，将exec(init)加载到第一页
+ * 
+ */
 void
 main()
 {

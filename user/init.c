@@ -11,6 +11,10 @@
 
 char *argv[] = { "sh", 0 };
 
+
+/**
+ * @brief step5 系统boot的时候，第一个进程才会执行这个函数，初始化shell
+ */
 int
 main(void)
 {

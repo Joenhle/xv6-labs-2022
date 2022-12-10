@@ -1,3 +1,4 @@
+# step4 这个initcode是一个进程的入口，这段代码放在了用户虚拟进程空间的0地址处，然后开始执行，在proc.c userinit函数里面负责初始代码装载
 # Initial process that execs /init.
 # This code runs in user space.
 

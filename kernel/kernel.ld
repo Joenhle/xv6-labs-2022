@@ -1,3 +1,6 @@
+/* 
+内核链接文件，负责符号解析和重定位，这里就是把entry的定位绑定到0x80000000位置处
+*/
 OUTPUT_ARCH( "riscv" )
 ENTRY( _entry )
 
@@ -9,6 +12,7 @@ SECTIONS
    */
   . = 0x80000000;
 
+  /*这些是对虚拟空间进行分段*/
   .text : {
     *(.text .text.*)
     . = ALIGN(0x1000);
