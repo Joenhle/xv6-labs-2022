@@ -67,6 +67,22 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+    if (which_dev == 2) {
+      struct proc* p = myproc();
+      acquire(&p->lock);
+      if (p->sigalarm_expiration > 0) {
+        p->sigalarm_ticks += 1;
+        if (p->sigalarm_ticks >= p->sigalarm_expiration) {
+          if (p->sigalarm_returned == 1) {
+            p->sigalarm_returned = 0;
+            memmove(p->old_trapframe, p->trapframe, sizeof(*p->trapframe));
+            p->trapframe->epc = p->sigalarm_func;  
+          }
+          p->sigalarm_ticks = 0;
+        }
+      }
+      release(&p->lock);
+    }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
