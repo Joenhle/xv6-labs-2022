@@ -4,11 +4,19 @@
 
 #include "kernel/types.h"
 #include "kernel/memlayout.h"
+#include "kernel/sysinfo.h"
 #include "user/user.h"
 
 // allocate more than half of physical memory,
 // then fork. this will fail in the default
 // kernel, which does not support copy-on-write.
+
+void print_sysinfo() {
+  struct sysinfo info;
+  sysinfo(&info);
+  printf("mem left:%d, not unused proc:%d\n", info.freemem, info.nproc);
+}
+
 void
 simpletest()
 {
@@ -58,7 +66,7 @@ threetest()
   int pid1, pid2;
 
   printf("three: ");
-  
+
   char *p = sbrk(sz);
   if(p == (char*)0xffffffffffffffffL){
     printf("sbrk(%d) failed\n", sz);

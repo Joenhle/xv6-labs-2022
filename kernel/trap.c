@@ -6,6 +6,9 @@
 #include "proc.h"
 #include "defs.h"
 
+extern int page_reference_pin[(PHYSTOP - KERNBASE)/4096];
+extern int get_page_pin_index(uint64);
+
 struct spinlock tickslock;
 uint ticks;
 
@@ -67,6 +70,45 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if (r_scause() == 15) {
+    pte_t *pte;
+    char* mem;
+    uint flag, new_flag;
+    uint64 va = r_stval(), pa;
+    if ((pte = walk(p->pagetable, va, 0)) == 0) {
+      panic("usertrap: pte should be exist");
+    }
+    if ((*pte & PTE_V) == 0) {
+      panic("usertrap: page not present");
+    }
+    if (DEBUG) {
+      printf("before trap(size = %d)\n", p->sz);
+      vmprint(p->pagetable, 1);  
+    }
+    if ((*pte & PTE_COW) != 0 && (*pte & PTE_W_COPY) != 0) {
+      flag = PTE_FLAGS(*pte);
+      new_flag = flag;    
+      pa = PTE2PA(*pte);
+      if ((mem = kalloc()) == 0) {
+        panic("usertrap: kalloc mem error");
+      }
+      memmove(mem, (char*)pa, PGSIZE);
+      new_flag &= ~(PTE_COW | PTE_W_COPY);
+      new_flag |= PTE_W;
+      if (mappages(p->pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, new_flag) != 0) {
+        kfree(mem);
+        panic("usertrap mmappages error");
+      }
+      page_reference_pin[get_page_pin_index((uint64)pa)] -= 1;
+      kfree((void*)pa);
+    } else {
+      printf("usertrap: try to write unwritable mem\n");
+      setkilled(p);
+    }
+    if (DEBUG) {
+      printf("after trap(size = %d)\n", p->sz);
+      vmprint(p->pagetable, 1);  
+    }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());

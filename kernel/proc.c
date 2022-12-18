@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "sysinfo.h"
 
 struct cpu cpus[NCPU];
 
@@ -17,6 +18,9 @@ struct spinlock pid_lock;
 
 extern void forkret(void);
 static void freeproc(struct proc *p);
+
+extern int page_reference_pin[(PHYSTOP - KERNBASE)/4096];
+extern int get_page_pin_index(uint64);
 
 extern char trampoline[]; // trampoline.S
 
@@ -155,8 +159,10 @@ found:
 static void
 freeproc(struct proc *p)
 {
-  if(p->trapframe)
+  if(p->trapframe) {
+    page_reference_pin[get_page_pin_index((uint64)p->trapframe)] = 0;
     kfree((void*)p->trapframe);
+  }
   p->trapframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
@@ -288,6 +294,12 @@ fork(void)
     return -1;
   }
 
+  if (DEBUG) {
+    printf("before fork: father's pagetable(size = %d):\n", p->sz);
+    vmprint(p->pagetable, 1);  
+  }
+  
+
   // Copy user memory from parent to child.
   if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
     freeproc(np);
@@ -295,6 +307,15 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+
+  if (DEBUG) {
+    printf("after fork: fathers's pagetable(size = %d):\n", p->sz);
+    vmprint(p->pagetable, 1);
+
+    printf("after fork: child's pagetable(size = %d):\n", np->sz);
+    vmprint(np->pagetable, 1);  
+  }
+  
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
@@ -321,6 +342,8 @@ fork(void)
   acquire(&np->lock);
   np->state = RUNNABLE;
   release(&np->lock);
+
+  np->trace_mask = p->trace_mask;
 
   return pid;
 }
@@ -680,4 +703,17 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+int get_not_unused_process_num(void) {
+  int num = 0;
+  struct proc *p;
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p->state != UNUSED) {
+        num++;      
+    }
+    release(&p->lock);
+  }
+  return num;
 }

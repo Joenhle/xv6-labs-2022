@@ -11,6 +11,9 @@
 
 void freerange(void *pa_start, void *pa_end);
 
+extern int page_reference_pin[(PHYSTOP - KERNBASE) / 4096];
+extern int get_page_pin_index(uint64);
+
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
 
@@ -46,8 +49,10 @@ freerange(void *pa_start, void *pa_end)
 void
 kfree(void *pa)
 {
+  if (page_reference_pin[get_page_pin_index((uint64)pa)] > 0) {
+    return;
+  }
   struct run *r;
-
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
@@ -76,7 +81,26 @@ kalloc(void)
     kmem.freelist = r->next;
   release(&kmem.lock);
 
-  if(r)
+  if(r) {
     memset((char*)r, 5, PGSIZE); // fill with junk
+    uint64 index = get_page_pin_index((uint64)r);
+    page_reference_pin[index] = 0;
+  }  
   return (void*)r;
+}
+
+
+
+
+long
+k_free_mem_size(void){
+  long free_mem_size = 0;
+  acquire(&kmem.lock); 
+  struct run* r = kmem.freelist;
+  while(r) {
+    free_mem_size += PGSIZE;
+    r = r->next;
+  }
+  release(&kmem.lock);
+  return free_mem_size;
 }
