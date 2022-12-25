@@ -18,15 +18,21 @@ struct run {
   struct run *next;
 };
 
-struct {
+struct kmem{
   struct spinlock lock;
   struct run *freelist;
-} kmem;
+  int count;
+};
+
+struct kmem kmems[NCPU];
 
 void
 kinit()
 {
-  initlock(&kmem.lock, "kmem");
+  for (int i = 0; i < NCPU; i++) {
+    initlock(&kmems[i].lock, "kmem");
+    kmems[i].count = 0;
+  }
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -55,11 +61,12 @@ kfree(void *pa)
   memset(pa, 1, PGSIZE);
 
   r = (struct run*)pa;
-
-  acquire(&kmem.lock);
-  r->next = kmem.freelist;
-  kmem.freelist = r;
-  release(&kmem.lock);
+  int id = cpuid();
+  acquire(&kmems[id].lock);
+  r->next = kmems[id].freelist;
+  kmems[id].freelist = r;
+  kmems[id].count += 1;
+  release(&kmems[id].lock);
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -70,12 +77,58 @@ kalloc(void)
 {
   struct run *r;
 
-  acquire(&kmem.lock);
-  r = kmem.freelist;
-  if(r)
-    kmem.freelist = r->next;
-  release(&kmem.lock);
-
+  int id = cpuid();
+  acquire(&kmems[id].lock);
+  r = kmems[id].freelist;
+  if(r) {
+    kmems[id].freelist = r->next;
+    kmems[id].count -= 1;
+  } else {
+    int max = 0, max_index = -1;
+    for (int i = 0; i < NCPU; i++) {
+      if (id == i) {
+        continue;
+      }
+      acquire(&kmems[i].lock);
+    }
+    for (int i = 0; i < NCPU; i++) {
+      if (id == i) {
+        continue;
+      }
+      if (kmems[i].count > max) {
+        max = kmems[i].count;
+        max_index = i;
+      }
+    }
+    for (int i = 0; i < NCPU; i++) {
+      if (i == id || i == max_index) {
+        continue;
+      }
+      release(&kmems[i].lock);
+    }
+    if (max != 0) {
+      struct run *temp = kmems[max_index].freelist;
+      int count = 1;
+      for (int i = 1; i < kmems[max_index].count / 2; i++) {
+        if (temp) {
+          temp = temp->next;
+          count += 1;
+        } else {
+          break;
+        }
+      }
+      kmems[id].freelist = kmems[max_index].freelist;
+      kmems[id].count = count;
+      kmems[max_index].freelist = temp->next;
+      kmems[max_index].count -= count;
+      temp->next = 0;
+      r = kmems[id].freelist;
+      kmems[id].freelist = r->next;
+      kmems[id].count -= 1;
+      release(&kmems[max_index].lock);
+    }
+  }
+  release(&kmems[id].lock);
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
