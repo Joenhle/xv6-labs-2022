@@ -247,7 +247,10 @@ UPROGS += \
 	$U/_bigfile
 endif
 
-
+ifeq ($(LAB), mmap)
+mmap: huge_cache_table/mmap.c
+	gcc -o huge_cache_table/mmap -g -O2 $(XCFLAGS) huge_cache_table/mmap.c
+endif
 
 ifeq ($(LAB),net)
 UPROGS += \
