@@ -55,6 +55,9 @@
 // each surrounded by invalid guard pages.
 #define KSTACK(p) (TRAMPOLINE - ((p)+1)* 2*PGSIZE)
 
+// only for user
+#define MMAPTOP TRAMPOLINE
+
 // User memory layout.
 // Address zero first:
 //   text

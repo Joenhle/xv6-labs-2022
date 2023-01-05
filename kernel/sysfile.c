@@ -16,6 +16,8 @@
 #include "file.h"
 #include "fcntl.h"
 
+
+
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
 static int
@@ -499,6 +501,69 @@ sys_pipe(void)
     p->ofile[fd1] = 0;
     fileclose(rf);
     fileclose(wf);
+    return -1;
+  }
+  return 0;
+}
+
+uint64
+sys_mmap(void) {
+  uint64 addr, freeva;
+  int length, prot, flags, fd, offset;
+  struct file* f = 0;
+  struct proc* p = 0;
+  struct vma* v = 0;
+  argaddr(0, &addr);
+  argint(1, &length);
+  argint(2, &prot);
+  argint(3, &flags);
+  argfd(4, &fd, &f);
+  argint(5, &offset);
+  p = myproc();
+  if ((v = alloc_vma(p)) == 0) {
+    panic("sys_mmap: no more vma\n");
+    return -1;
+  }
+  if (f->writable == 0 && ((flags & MAP_SHARED) != 0 && (prot & PROT_WRITE) != 0)) {
+    return -1;
+  }
+  if (addr == 0) {
+    if ((freeva = find_mmap_space(p->pagetable, length)) == -1) {
+      panic("sys_mmap: can't find free mmap space");
+    }
+    if ((uvlazymalloc(p->pagetable, freeva, freeva + length, 0)) == -1) {
+      printf("sys_map: lazy malloc error\n");
+      return -1;
+    }
+    v->addr = freeva;
+    v->length = length;
+    v->flag = flags;
+    v->prot = prot;
+    v->f = filedup(f);
+    v->offset = offset;
+    return v->addr;
+  }
+  return -1;
+}
+
+uint64
+sys_munmap(void) {
+  uint64 addr;
+  int length;
+  argaddr(0, &addr);
+  argint(1, &length);
+
+  struct proc* p = myproc();
+  int ok = 0;
+  for (int i = 0; i < VMASIZE; i++) {
+    struct vma* v = &p->vmas[i];
+    if (addr == v->addr && length <= v->length) {
+      munmap_vma(v, length);
+      ok = 1;
+      break;
+    }
+  }
+  if (!ok) {
     return -1;
   }
   return 0;

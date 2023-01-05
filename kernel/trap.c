@@ -5,6 +5,10 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "fcntl.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -67,6 +71,49 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if (r_scause() == 13) {
+    uint64 va = r_stval();
+    struct proc* p = myproc();
+    struct vma* v = 0;
+    int error = 1;
+    for (int i = 0; i < VMASIZE; i++) {
+      v = &p->vmas[i];
+      if (v->addr != 0 && va >= v->addr && va < v->addr + v->length) {
+        pte_t* pte;
+        char* mem;
+        if ((pte = walk(p->pagetable, va, 0)) == 0) {
+          panic("usertrap: page should be exist");
+        }
+        if ((*pte & PTE_V) == 0) {
+          panic("usertrap: pte is not valid");
+        }
+        if ((*pte & PTE_L) == 0) {
+          panic("usertrap: pte is not lazy allocate");
+        }
+        if ((v->prot & PROT_READ) == 0) {
+          panic("usertrap: the addr can't be readable");
+        }
+        if ((mem = kalloc()) == 0) {
+          panic("usertrap: kalloc mem error");
+        }
+        readi(v->f->ip, 0, (uint64)mem, PGROUNDDOWN(va) - v->addr + v->offset, PGSIZE);
+        int new_flag = (PTE_FLAGS(*pte) | PTE_V | PTE_R) & (~PTE_L);
+        if ((v->prot & PROT_WRITE) != 0) {
+          new_flag |= PTE_W;
+        }
+        if (mappages(p->pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, new_flag)) {
+          kfree(mem);
+          panic("usertrap mappages error");
+        }
+        error = 0;
+        break;
+      }
+    }
+    if (error) {
+      printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+      printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+      panic("load page fault");
+    }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());

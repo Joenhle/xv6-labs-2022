@@ -153,7 +153,7 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   for(;;){
     if((pte = walk(pagetable, a, 1)) == 0)
       return -1;
-    if(*pte & PTE_V)
+    if((*pte & PTE_L) == 0 && (*pte & PTE_V))
       panic("mappages: remap");
     *pte = PA2PTE(pa) | perm | PTE_V;
     if(a == last)
@@ -248,6 +248,51 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
   return newsz;
 }
 
+uint64
+find_mmap_space(pagetable_t pagetable, uint64 sz) {
+  uint64 top = MMAPTOP;
+  uint64 freesz = 0;
+  pte_t* pte;
+  while(top >= 0) {
+    uint64 va = PGROUNDDOWN(top);
+    if ((pte = walk(pagetable, va, 1)) == 0) {
+      panic("find_mmap_space: walk error");
+    }
+    if (*pte == 0) {
+      freesz += PGSIZE;
+      if (freesz >= sz) {
+        break;
+      }
+    } else {
+      freesz = 0;
+    }
+    top -= PGSIZE;
+  }
+  if (freesz < sz) {
+    return -1;
+  }
+  return top;
+}
+
+uint64
+uvlazymalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int perm) 
+{
+  uint64 a;
+  pte_t *pte;
+  oldsz = PGROUNDDOWN(oldsz);
+  for(a = oldsz; a < newsz; a += PGSIZE) {
+    if ((pte = walk(pagetable, a, 1)) == 0) {
+      panic("uvlazymalloc: walk error");
+    }
+    if (*pte != 0) {
+      panic("the pte should be zeor");
+    }
+    //lazy malloc, load page fault real malloc
+    *pte |= (PTE_V | PTE_U | PTE_L);
+  }
+  return newsz;
+}
+
 // Deallocate user pages to bring the process size from oldsz to
 // newsz.  oldsz and newsz need not be page-aligned, nor does newsz
 // need to be less than oldsz.  oldsz can be larger than the actual
@@ -331,6 +376,44 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   uvmunmap(new, 0, i / PGSIZE, 1);
   return -1;
 }
+
+int
+mmap_copy(pagetable_t old, pagetable_t new, uint64 vfrom, uint64 vto)
+{
+  pte_t *pte;
+  uint64 pa, i;
+  uint flags;
+  char* mem;
+
+  for (i = vfrom; i < vto; i += PGSIZE) {
+    if((pte = walk(old, i, 0)) == 0)
+      panic("uvmcopy: pte should exist");
+    if((*pte & PTE_V) == 0)
+      panic("uvmcopy: page not present");
+    pa = PTE2PA(*pte);
+    flags = PTE_FLAGS(*pte);
+    if ((*pte & PTE_L) != 0) {
+      if ((pte = walk(new, i, 1)) == 0) {
+        panic("mmap_copy: walk error");
+      }
+      *pte |= flags;
+    } else {
+      if((mem = kalloc()) == 0)
+        goto err;
+      memmove(mem, (char*)pa, PGSIZE);
+      if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
+        kfree(mem);
+        goto err;
+      }
+    }
+  }
+  return 0;
+  err:
+    uvmunmap(new, 0, i / PGSIZE, 1);
+    return -1;
+}
+
+
 
 // mark a PTE invalid for user access.
 // used by exec for the user stack guard page.

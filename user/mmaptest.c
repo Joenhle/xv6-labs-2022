@@ -72,6 +72,13 @@ makefile(const char *f)
     if (write(fd, buf, BSIZE) != BSIZE)
       err("write 0 makefile");
   }
+  memset(buf, 0, BSIZE);
+  // wirte 0.5 page
+  for (int i = 0; i < n/2; i++) {
+    if (write(fd, buf, BSIZE) != BSIZE) {
+      err("write 0 makefile");
+    }
+  }
   if (close(fd) == -1)
     err("close");
 }

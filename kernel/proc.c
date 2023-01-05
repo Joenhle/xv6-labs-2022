@@ -5,6 +5,11 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "fcntl.h"
+#include "fs.h"
+#include "sleeplock.h"
+#include "file.h"
+
 
 struct cpu cpus[NCPU];
 
@@ -288,6 +293,20 @@ fork(void)
     return -1;
   }
 
+  // copy mmap space from parent to child
+  for (int i = 0; i < VMASIZE; i++) {
+    if (p->vmas[i].addr != 0) {
+      struct vma* v = &p->vmas[i];
+      if (mmap_copy(p->pagetable, np->pagetable, v->addr, v->addr + v->length) < 0) {
+        freeproc(np);
+        release(&np->lock);
+        return -1;
+      }
+      np->vmas[i] = p->vmas[i];
+      np->vmas[i].f = filedup(np->vmas[i].f);
+    }
+  }
+
   // Copy user memory from parent to child.
   if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
     freeproc(np);
@@ -347,7 +366,7 @@ void
 exit(int status)
 {
   struct proc *p = myproc();
-
+  struct vma* v;
   if(p == initproc)
     panic("init exiting");
 
@@ -357,6 +376,13 @@ exit(int status)
       struct file *f = p->ofile[fd];
       fileclose(f);
       p->ofile[fd] = 0;
+    }
+  }
+  
+  for (int i = 0; i < VMASIZE; i++) {
+    v = &p->vmas[i];
+    if (v->addr != 0) {
+      munmap_vma(v, v->length);
     }
   }
 
@@ -680,4 +706,59 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+struct vma* alloc_vma(struct proc* p) {
+  for (int i = 0; i < VMASIZE; i++) {
+    if (p->vmas[i].addr == 0) {
+      return &p->vmas[i];
+    }
+  }
+  return 0;
+}
+
+int munmap_vma(struct vma* v, uint64 size) {
+  pte_t* pte;
+  struct proc* p = myproc();
+  if ((v->flag & MAP_SHARED) != 0) {
+    uint64 va = PGROUNDDOWN(v->addr);
+    while(va < v->addr + size) {
+      if ((pte = walk(p->pagetable, va, 0)) == 0) {
+        panic("pte should be exsit");
+      }
+      if ((*pte & PTE_V) == 0) {
+        panic("munmap_vma: pte is not valid");
+      }
+      if ((*pte & PTE_L) == 0 && (*pte & PTE_D) != 0) {
+        begin_op();
+        ilock(v->f->ip);
+        writei(v->f->ip, 1, va, va - v->addr + v->offset, PGSIZE);
+        iunlock(v->f->ip);
+        end_op();
+      }
+      va += PGSIZE;
+    }
+  }
+  int k = size / PGSIZE + (size % PGSIZE == 0 ? 0 : 1);
+  for (int i = 0; i < k; i++) {
+    uint64 va = v->addr + i*PGSIZE;
+    pte = walk(p->pagetable, va, 0);
+    if ((*pte & PTE_V) == 0) {
+      panic("munmap_vma: pte is not valid");
+    }
+    if ((*pte & PTE_L) == 0) {
+      uvmunmap(p->pagetable, va, 1, 1);    
+    } else {
+      uvmunmap(p->pagetable, va, 1, 0);
+    }
+  }
+  v->length -= size;
+  if (v->length == 0) {
+    v->addr = 0;
+    fileclose(v->f);
+    v->f = 0;
+  } else {
+    v->addr += size;
+  }
+  return 0;
 }
